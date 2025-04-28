@@ -1,0 +1,6 @@
+{
+  "erc721Address": "erc721 contract address",
+  "rewardDistributionAddress": "reward distribution contract address",
+  "saleAddress": "sale contract address",
+  "subscriptionAddress": "subscription contract address"
+}

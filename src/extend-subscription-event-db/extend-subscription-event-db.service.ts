@@ -1,0 +1,93 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Observable, catchError, filter, from, map, mergeMap, of } from 'rxjs';
+import { EventService } from 'src/event/event.service';
+import { Subscription__factory } from 'src/generated-contract-types';
+import { ExtendSubscriptionEvent as ExtendSubscriptionEventObject } from 'src/generated-contract-types/Subscription';
+import {
+  ExtendSubscriptionEvent,
+  ExtendSubscriptionEventDocument,
+} from './schemas/extend-subscription-event.schema';
+
+@Injectable()
+export class ExtendSubscriptionEventDbService {
+  constructor(
+    @InjectModel(ExtendSubscriptionEvent.name)
+    private extendSubscriptionEventModel: Model<ExtendSubscriptionEventDocument>,
+    private eventService: EventService,
+  ) {
+    this.$create.subscribe((create) => this.logger.debug('🚀 create:', create));
+  }
+
+  private readonly logger = new Logger(ExtendSubscriptionEventDbService.name);
+  private eventToFilter =
+    Subscription__factory.createInterface().getEvent('ExtendSubscription').name;
+  private $extendSubscriptionEvents = this.eventService.events.pipe(
+    filter((event) => event.eventName === this.eventToFilter),
+    map((event) => {
+      const transferObject: ExtendSubscriptionEventObject.OutputObject =
+        JSON.parse(event.eventArgs);
+
+      return {
+        event,
+        object: transferObject,
+      };
+    }),
+    catchError((error) => {
+      this.logger.error('🚀 ~ extendSubscriptionEvents ~ error:', error);
+
+      return of(null);
+    }),
+    filter((event) => event.event != null && event.object != null),
+  );
+
+  private $create: Observable<ExtendSubscriptionEventDocument | null> =
+    this.$extendSubscriptionEvents.pipe(
+      mergeMap((event) =>
+        from(
+          this.create(
+            event.event.contractAddress,
+            event.event.chainId,
+            event.event.txHash,
+            event.object.user,
+            event.object.token,
+            event.object.period.toString(),
+          ),
+        ).pipe(
+          catchError((err) => {
+            this.logger.error('🚀 ~ create ~ mergeMap ~ err:', err);
+
+            return of(null);
+          }),
+        ),
+      ),
+      catchError((error) => {
+        this.logger.error('🚀 ~ create ~ error:', error);
+
+        return of(null);
+      }),
+    );
+
+  private async create(
+    contract: string,
+    chainId: number,
+    txHash: string,
+    user: string,
+    token: string,
+    period: string,
+  ): Promise<ExtendSubscriptionEventDocument> {
+    // Exist check is not done because we can purchase the same item multiple times in one tx
+    const doc = {
+      contract: contract,
+      chainId: chainId,
+      txHash: txHash,
+      user: user,
+      token: token,
+      period: period,
+      createdAt: Date.now(),
+    };
+
+    return await new this.extendSubscriptionEventModel(doc).save();
+  }
+}
